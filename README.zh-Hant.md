@@ -1,5 +1,5 @@
 <p align="left">
-  <img src="PressKits/Logo.png" alt="AnyCornerShape" width="480" />
+  <img src="PressKits/Logo.png" alt="AnyCornerShape" width="1024" />
 </p>
 
 [English](README.md) · **繁體中文**
