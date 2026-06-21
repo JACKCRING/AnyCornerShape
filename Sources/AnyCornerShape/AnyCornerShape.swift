@@ -33,6 +33,18 @@ import SwiftUI
 /// 圆角风格：`style` 参数在 iOS 16 / macOS 13 / tvOS 16 / watchOS 9 /
 /// visionOS 1 及以上版本会被忠实保留（`.continuous` 走系统的 squircle）；
 /// 在更老的系统上会自动降级为 `.circular`（标准圆弧）。
+/// 圆角半径的约束模式，决定半径过大时如何处理。
+public enum CornerClamp: Sendable {
+    /// 严格模式（默认）：单角上限为短边的一半 `min(width, height) / 2`，
+    /// 同一条边上相邻两角之和超过边长时，四个角一起按比例等比缩小。
+    /// 怎么填都安全、对称、不破形。
+    case strict
+    /// 宽松模式：单角上限放宽到短边长度 `min(width, height)`，
+    /// 允许做出单边大圆角（叶子形 / D 形）。相邻两角冲突时只对涉及的那条边
+    /// 做局部独立缩放，不波及其它角，尽量保留大圆角的意图。
+    case relaxed
+}
+
 public struct AnyCornerShape: InsettableShape, Sendable {
 
     /// 左上角圆角半径。
@@ -48,6 +60,9 @@ public struct AnyCornerShape: InsettableShape, Sendable {
     /// 上生效，更老的系统会自动按 `.circular` 渲染。
     public var style: RoundedCornerStyle
 
+    /// 半径约束模式，默认 `.strict`。详见 ``CornerClamp``。
+    public var clamp: CornerClamp
+
     /// 由 `inset(by:)` 累积，用于支持 `strokeBorder` 等内缩绘制。
     private var insetAmount: CGFloat = 0
 
@@ -59,28 +74,36 @@ public struct AnyCornerShape: InsettableShape, Sendable {
     ///   - bottomLeading: 左下角半径，默认 `0`。
     ///   - bottomTrailing: 右下角半径，默认 `0`。
     ///   - style: 圆角风格，默认 `.circular`。`.continuous` 仅在新系统生效。
+    ///   - clamp: 半径约束模式，默认 `.strict`。`.relaxed` 允许单边大圆角。
     public init(
         topLeading: CGFloat = 0,
         topTrailing: CGFloat = 0,
         bottomLeading: CGFloat = 0,
         bottomTrailing: CGFloat = 0,
-        style: RoundedCornerStyle = .circular
+        style: RoundedCornerStyle = .circular,
+        clamp: CornerClamp = .strict
     ) {
         self.topLeading = topLeading
         self.topTrailing = topTrailing
         self.bottomLeading = bottomLeading
         self.bottomTrailing = bottomTrailing
         self.style = style
+        self.clamp = clamp
     }
 
     /// 四个角使用相同半径的便捷初始化器。
-    public init(_ radius: CGFloat, style: RoundedCornerStyle = .circular) {
+    public init(
+        _ radius: CGFloat,
+        style: RoundedCornerStyle = .circular,
+        clamp: CornerClamp = .strict
+    ) {
         self.init(
             topLeading: radius,
             topTrailing: radius,
             bottomLeading: radius,
             bottomTrailing: radius,
-            style: style
+            style: style,
+            clamp: clamp
         )
     }
 
@@ -94,21 +117,33 @@ public struct AnyCornerShape: InsettableShape, Sendable {
         let rawBL = max(0, bottomLeading - insetAmount)
         let rawBR = max(0, bottomTrailing - insetAmount)
 
-        // 2. 单个角不能超过最短边的一半。
-        let maxRadius = min(r.width, r.height) / 2
+        // 2. 单个角的上限：严格模式为短边一半，宽松模式为短边长度。
+        let maxRadius = clamp == .strict ? min(r.width, r.height) / 2
+                                         : min(r.width, r.height)
         var tl = min(rawTL, maxRadius)
         var tr = min(rawTR, maxRadius)
         var bl = min(rawBL, maxRadius)
         var br = min(rawBR, maxRadius)
 
-        // 3. 相邻两角之和不能超过对应边长（CSS border-radius 那种等比缩放）。
+        // 3. 相邻两角之和不能超过对应边长，否则路径会自相交。
         let scaleTop    = (tl + tr) > r.width  ? r.width  / (tl + tr) : 1
         let scaleBottom = (bl + br) > r.width  ? r.width  / (bl + br) : 1
         let scaleLeft   = (tl + bl) > r.height ? r.height / (tl + bl) : 1
         let scaleRight  = (tr + br) > r.height ? r.height / (tr + br) : 1
-        let scale = min(min(scaleTop, scaleBottom), min(scaleLeft, scaleRight))
-        if scale < 1 {
-            tl *= scale; tr *= scale; bl *= scale; br *= scale
+
+        switch clamp {
+        case .strict:
+            // 四个角统一按最小比例缩放，保持整体比例、绝不破形。
+            let scale = min(min(scaleTop, scaleBottom), min(scaleLeft, scaleRight))
+            if scale < 1 {
+                tl *= scale; tr *= scale; bl *= scale; br *= scale
+            }
+        case .relaxed:
+            // 每个角只受它所在两条边的约束影响，互不波及，保留单边大圆角的意图。
+            tl *= min(scaleTop, scaleLeft)
+            tr *= min(scaleTop, scaleRight)
+            bl *= min(scaleBottom, scaleLeft)
+            br *= min(scaleBottom, scaleRight)
         }
 
         // 4a. 新系统：直接转发给原生 UnevenRoundedRectangle，

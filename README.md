@@ -26,6 +26,7 @@ Suitable for any UI that needs asymmetric corners: cards, popovers, chat bubbles
 ## Features
 
 - Each of the four corners has an independent radius.
+- Two clamping modes: **strict** (default, always safe and symmetric) and **relaxed** (allows oversized single-side corners for leaf / D shapes).
 - Works both as a `Shape` and as a `View` modifier, with a style consistent with SwiftUI's native shapes.
 - Supports `RoundedCornerStyle` (`.continuous` squircle / `.circular`), with automatic fallback to `.circular` on older systems.
 - Conforms to `InsettableShape`, so `strokeBorder` and inset drawing work out of the box.
@@ -99,6 +100,26 @@ AnyCornerShape(topLeading: 24, topTrailing: 20, bottomLeading: 12, bottomTrailin
     .frame(width: 200, height: 100)
 ```
 
+## Clamping Modes
+
+Use `clamp` to control how oversized radii are handled. It defaults to `.strict` and is available on both the `Shape` initializer and the modifiers.
+
+- `.strict` (default): each corner is capped at `min(width, height) / 2`. When adjacent corners on the same edge exceed the edge length, all four corners are scaled down proportionally. The shape is always safe, symmetric, and never self-intersects.
+- `.relaxed`: each corner can grow up to `min(width, height)` (the true single-corner geometric limit), letting you draw a large single-side corner such as a leaf or "D" shape. When adjacent corners conflict, only the offending edge's corners are scaled locally, so a large corner keeps its intent.
+
+```swift
+// Strict (default): on a 200 x 100 rect a single corner maxes out at 50
+Rectangle().anyCornerShape(topLeading: 80)
+
+// Relaxed: the same corner can reach up to 100
+Rectangle().anyCornerShape(topLeading: 80, clamp: .relaxed)
+
+// As a Shape
+AnyCornerShape(topLeading: 100, style: .continuous, clamp: .relaxed)
+    .fill(.blue)
+    .frame(width: 200, height: 100)
+```
+
 ## FAQ
 
 **Q: The `.continuous` style has no effect.**
@@ -111,7 +132,7 @@ A: Parameters are treated as physical positions (`topLeading` is the top-left co
 
 **Q: What happens if a radius is too large?**
 
-A: The component clamps each radius to half of the shortest edge and proportionally scales adjacent corners, so the shape never breaks.
+A: In `.strict` mode each radius is clamped to half the shortest edge and adjacent corners are scaled proportionally, so the shape never breaks. In `.relaxed` mode the per-corner cap is raised to the shortest edge length to allow large single-side corners. See [Clamping Modes](#clamping-modes).
 
 **Q: Can I draw a border with independent corners?**
 
